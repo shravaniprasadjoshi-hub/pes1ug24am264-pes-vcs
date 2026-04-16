@@ -92,22 +92,26 @@ int object_exists(const ObjectID *id) {
 //
 
 //
-// Returns 0 on success, -1 on error.
-int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out) {
-    // TODO: Implement
-    // Starting Phase 1 - Shravni
-    (void)type; (void)data; (void)len; (void)id_out;
-    return -1;
+int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
+    // 1. Prepare the Header
+    char header[64];
+    // Convert ObjectType enum to string (e.g., "blob")
+    const char *type_str = (type == OBJ_BLOB) ? "blob" : 
+                           (type == OBJ_TREE) ? "tree" : "commit";
+    int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, size) + 1; 
+
+    // --- Commit 2 Logic: Combine Header and Data ---
+    size_t total_len = header_len + size;
+    unsigned char *full_content = malloc(total_len);
+    if (!full_content) return -1; 
+
+    memcpy(full_content, header, header_len);
+    memcpy(full_content + header_len, data, size);
+
+    // Stop here for Commit #2! 
+    // We will add the rest in Commit #3.
+    return 0; 
 }
-
-// Calculate total size: header length + data size
-size_t total_len = header_len + size;
-unsigned char *full_content = malloc(total_len);
-
-// Copy header then copy the actual file data right after it
-memcpy(full_content, header, header_len);
-memcpy(full_content + header_len, data, size);
-
 // Read an object from the store.
 //
 // Steps:
