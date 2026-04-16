@@ -132,17 +132,33 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 int tree_from_index(ObjectID *id_out) 
 {
     Index index;
-    // 1. Load the staged files into memory
     if (index_load(&index) != 0) 
         return -1;
 
-    // Sanity check: cannot create a tree from an empty index
     if (index.count == 0) 
         return -1;
 
     Tree tree;
     tree.count = 0;
 
+    for (int i = 0; i < index.count; i++) 
+    {
+        TreeEntry *e = &tree.entries[tree.count++];
+        e->mode = index.entries[i].mode;
+        
+        // Find the actual filename (e.g., "src/main.c" becomes "main.c")
+        const char *path = index.entries[i].path;
+        const char *name = strrchr(path, '/');
+        if (name)
+            name++;
+        else
+            name = path;
+
+        strncpy(e->name, name, sizeof(e->name));
+        e->name[sizeof(e->name) - 1] = '\0';
+        memcpy(e->hash.hash, index.entries[i].hash.hash, HASH_SIZE);
+    }
     
+    // TODO: Phase 3.3 - Serialization and object writing
     return -1;
 }
