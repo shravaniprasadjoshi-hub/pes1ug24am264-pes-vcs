@@ -108,8 +108,9 @@ int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
     memcpy(full_content, header, header_len);
     memcpy(full_content + header_len, data, size);
 
-    // Stop here for Commit #2! 
-    // We will add the rest in Commit #3.
+    compute_hash(full_content, total_len, id);
+    
+    free(full_content);
     return 0; 
 }
 // Read an object from the store.
