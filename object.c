@@ -111,20 +111,20 @@ int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
     compute_hash(full_content, total_len, id);
     
     free(full_content);
-    // --- Commit 4 Logic: Directory Sharding ---
+// --- Updated Commit 4 Logic ---
     char path[PATH_MAX];
-   object_path(id, path, sizeof(path)); // This helper gets the full path like .pes/objects/XX/YYYY...
+    object_path(id, path, sizeof(path));
 
     char dir_path[PATH_MAX];
     strncpy(dir_path, path, PATH_MAX);
-    
-    // We need to isolate the folder name (.pes/objects/XX) from the full path
     char *last_slash = strrchr(dir_path, '/');
-    if (last_slash) {
-        *last_slash = '\0'; // Cut the string at the last slash
-    }
+    if (last_slash) *last_slash = '\0';
 
-    // Create the "XX" directory. 0755 provides standard read/write/execute permissions.
+    // 1. Create .pes/objects first (just in case)
+    mkdir(".pes", 0755);
+    mkdir(".pes/objects", 0755);
+
+    // 2. Then create the sharded directory (XX)
     mkdir(dir_path, 0755);
 
     // --- Commit 5 Logic: Atomic File Write ---
