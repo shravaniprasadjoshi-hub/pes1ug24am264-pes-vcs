@@ -173,14 +173,23 @@ int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_
     fclose(fp);
 
     ObjectID computed;
-    compute_hash(buffer, size, &computed); // Re-hash the read content
-    if (memcmp(computed.hash, id->hash, HASH_SIZE) != 0) { // Verify integrity
+    compute_hash(buffer, size, &computed);
+    if (memcmp(computed.hash, id->hash, HASH_SIZE) != 0) {
         free(buffer);
         return -1;
     }
 
-    // TODO: Phase 2.4 - Header parsing goes here
+    char *null_pos = memchr(buffer, '\0', size); // Find the separator
+    if (!null_pos) {
+        free(buffer);
+        return -1;
+    }
+
+    if (strncmp(buffer, "blob", 4) == 0) *type_out = OBJ_BLOB;
+    else if (strncmp(buffer, "tree", 4) == 0) *type_out = OBJ_TREE;
+    else *type_out = OBJ_COMMIT;
+
+    // TODO: Phase 2.5 - Data extraction goes here
     free(buffer);
     return -1;
 }
-
