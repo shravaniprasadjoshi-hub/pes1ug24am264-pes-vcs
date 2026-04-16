@@ -179,7 +179,7 @@ int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_
         return -1;
     }
 
-    char *null_pos = memchr(buffer, '\0', size); // Find the separator
+    char *null_pos = memchr(buffer, '\0', size);
     if (!null_pos) {
         free(buffer);
         return -1;
@@ -189,7 +189,20 @@ int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_
     else if (strncmp(buffer, "tree", 4) == 0) *type_out = OBJ_TREE;
     else *type_out = OBJ_COMMIT;
 
-    // TODO: Phase 2.5 - Data extraction goes here
+    size_t data_len;
+    sscanf(buffer, "%*s %zu", &data_len); // Parse size from header
+    
+    char *data_start = null_pos + 1;
+    void *data = malloc(data_len);
+    if (!data) {
+        free(buffer);
+        return -1;
+    }
+    memcpy(data, data_start, data_len); // Extract only the data portion
+
+    *data_out = data;
+    *len_out = data_len;
+
     free(buffer);
-    return -1;
+    return 0;
 }
