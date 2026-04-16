@@ -100,6 +100,14 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
     return -1;
 }
 
+// Calculate total size: header length + data size
+size_t total_len = header_len + size;
+unsigned char *full_content = malloc(total_len);
+
+// Copy header then copy the actual file data right after it
+memcpy(full_content, header, header_len);
+memcpy(full_content + header_len, data, size);
+
 // Read an object from the store.
 //
 // Steps:
