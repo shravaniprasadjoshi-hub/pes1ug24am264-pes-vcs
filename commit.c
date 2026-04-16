@@ -197,18 +197,27 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
     Commit c;
     memset(&c, 0, sizeof(c));
 
-    // 1. Create the tree from the current index
-    if (tree_from_index(&c.tree) != 0) {
-        return -1;
-    }
+    if (tree_from_index(&c.tree) != 0) return -1;
 
-    // 2. Try to read the current HEAD to find a parent commit
     if (head_read(&c.parent) == 0) {
         c.has_parent = 1;
     } else {
-        c.has_parent = 0; // First commit in the repository
+        c.has_parent = 0;
     }
 
-    // TODO: Phase 4.2 - Fill metadata
+    // 3. Fill in author, timestamp, and message
+    snprintf(c.author, sizeof(c.author), "%s", pes_author());
+    c.timestamp = (uint64_t)time(NULL);
+    strncpy(c.message, message, sizeof(c.message) - 1);
+
+    // 4. Serialize to text format
+    void *data;
+    size_t len;
+    if (commit_serialize(&c, &data, &len) != 0) {
+        return -1;
+    }
+
+    // TODO: Phase 4.3 - Write object and update HEAD
+    free(data);
     return -1;
 }
