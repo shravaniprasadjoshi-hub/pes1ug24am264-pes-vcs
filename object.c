@@ -155,12 +155,25 @@ int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
 // Returns 0 on success, -1 on error (file not found, corrupt, etc.).
 int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_t *len_out) {
     char path[PATH_MAX];
-    object_path(id, path, sizeof(path)); //
+    object_path(id, path, sizeof(path));
 
-    FILE *fp = fopen(path, "rb"); // Open in binary mode
+    FILE *fp = fopen(path, "rb");
     if (!fp) return -1;
-    
-    // TODO: Phase 2.2 - Reading logic goes here
+
+    fseek(fp, 0, SEEK_END);
+    size_t size = ftell(fp); // Get file size
+    rewind(fp);
+
+    char *buffer = malloc(size);
+    if (!buffer) {
+        fclose(fp);
+        return -1;
+    }
+    fread(buffer, 1, size, fp); // Read entire content
     fclose(fp);
-    return -1; 
+
+    // TODO: Phase 2.3 - Integrity check goes here
+    free(buffer);
+    return -1;
 }
+
