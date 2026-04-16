@@ -95,6 +95,7 @@ int object_exists(const ObjectID *id) {
 // Returns 0 on success, -1 on error.
 int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out) {
     // TODO: Implement
+    // Starting Phase 1 - Shravni
     (void)type; (void)data; (void)len; (void)id_out;
     return -1;
 }
