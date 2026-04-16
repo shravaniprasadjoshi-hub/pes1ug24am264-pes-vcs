@@ -145,8 +145,6 @@ int tree_from_index(ObjectID *id_out)
     {
         TreeEntry *e = &tree.entries[tree.count++];
         e->mode = index.entries[i].mode;
-        
-        // Find the actual filename (e.g., "src/main.c" becomes "main.c")
         const char *path = index.entries[i].path;
         const char *name = strrchr(path, '/');
         if (name)
@@ -159,6 +157,22 @@ int tree_from_index(ObjectID *id_out)
         memcpy(e->hash.hash, index.entries[i].hash.hash, HASH_SIZE);
     }
     
-    // TODO: Phase 3.3 - Serialization and object writing
-    return -1;
+    void *data;
+    size_t len;
+
+    // 1. Convert the tree structure into a binary buffer
+    if (tree_serialize(&tree, &data, &len) != 0)
+        return -1;
+
+    // 2. Write the binary tree object to the store
+    ObjectID root_id;
+    if (object_write(OBJ_TREE, data, len, &root_id) != 0) {
+        free(data);
+        return -1;
+    }
+
+    *id_out = root_id; // Return the hash of the root tree
+    free(data);
+
+    return 0;
 }
