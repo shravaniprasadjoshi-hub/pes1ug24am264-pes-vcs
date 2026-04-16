@@ -9,114 +9,63 @@
 // TODO functions:     object_write, object_read
 
 #include "include/object.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <string.h>
-#include <stdlib.h>
-#include <stdio.h>
 #include <linux/limits.h>
 
-// ... (Keep the PROVIDED functions: hash_to_hex, hex_to_hash, compute_hash, etc. exactly as they were) ...
+// ─── PROVIDED ────────────────────────────────────────────────────────────────
 
-int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
-    // 1. Prepare the Header
-    char header[64];
-    const char *type_str = (type == OBJ_BLOB) ? "blob" : 
-                           (type == OBJ_TREE) ? "tree" : "commit";
-    int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, size) + 1; 
-
-    // 2. Build the full content for hashing
-    size_t total_len = header_len + size;
-    unsigned char *full_content = malloc(total_len);
-    if (!full_content) return -1; 
-
-    memcpy(full_content, header, header_len);
-    memcpy(full_content + header_len, data, size);
-
-    // 3. Compute the SHA-256 hash
-    compute_hash(full_content, total_len, id);
-
-    // 4. Deduplication: success if it already exists
-    if (object_exists(id)) {
-        free(full_content);
-        return 0;
+void hash_to_hex(const ObjectID *id, char *hex_out) {
+    for (int i = 0; i < HASH_SIZE; i++) {
+        sprintf(hex_out + i * 2, "%02x", id->hash[i]);
     }
-
-    // 5. Setup Paths
-    char path[PATH_MAX];
-    object_path(id, path, sizeof(path));
-
-    char dir_path[PATH_MAX];
-    strncpy(dir_path, path, PATH_MAX);
-    char *last_slash = strrchr(dir_path, '/');
-    if (last_slash) *last_slash = '\0';
-
-    // 6. Create directories (sharding)
-    mkdir(".pes", 0755);
-    mkdir(".pes/objects", 0755);
-    mkdir(dir_path, 0755);
-
-    // 7. Atomic Write
-    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0) {
-        free(full_content);
-        return -1;
-    }
-
-    if (write(fd, full_content, total_len) != (ssize_t)total_len) {
-        close(fd);
-        free(full_content);
-        return -1;
-    }
-
-    fsync(fd);
-    close(fd);
-    free(full_content);
-
-    return 0; 
+    hex_out[HASH_HEX_SIZE] = '\0';
 }
 
-// ... (Leave object_read as a TODO for now) ...
+int hex_to_hash(const char *hex, ObjectID *id_out) {
+    if (strlen(hex) < HASH_HEX_SIZE) return -1;
+    for (int i = 0; i < HASH_SIZE; i++) {
+        unsigned int byte;
+        if (sscanf(hex + i * 2, "%2x", &byte) != 1) return -1;
+        id_out->hash[i] = (uint8_t)byte;
+    }
+    return 0;
+}
 
-// ─── TODO: Implement these ──────────────────────────────────────────────────
+void compute_hash(const void *data, size_t len, ObjectID *id_out) {
+    unsigned int hash_len;
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    EVP_DigestInit_ex(ctx, EVP_sha256(), NULL);
+    EVP_DigestUpdate(ctx, data, len);
+    EVP_DigestFinal_ex(ctx, id_out->hash, &hash_len);
+    EVP_MD_CTX_free(ctx);
+}
 
-// Write an object to the store.
-//
-// Object format on disk:
-//   "<type> <size>\0<data>"
-//   where <type> is "blob", "tree", or "commit"
-//   and <size> is the decimal string of the data length
-//
-// Steps:
-//   1. Build the full object: header ("blob 16\0") + data
-//   2. Compute SHA-256 hash of the FULL object (header + data)
-//   3. Check if object already exists (deduplication) — if so, just return success
-//   4. Create shard directory (.pes/objects/XX/) if it doesn't exist
-//   5. Write to a temporary file in the same shard directory
-//   6. fsync() the temporary file to ensure data reaches disk
-//   7. rename() the temp file to the final path (atomic on POSIX)
-//   8. Open and fsync() the shard directory to persist the rename
-//   9. Store the computed hash in *id_out
+void object_path(const ObjectID *id, char *path_out, size_t path_size) {
+    char hex[HASH_HEX_SIZE + 1];
+    hash_to_hex(id, hex);
+    snprintf(path_out, path_size, "%s/%.2s/%s", OBJECTS_DIR, hex, hex + 2);
+}
 
-// HINTS - Useful syscalls and functions for this phase:
-//   - sprintf / snprintf : formatting the header string
-//   - compute_hash       : hashing the combined header + data
-//   - object_exists      : checking for deduplication
-//   - mkdir              : creating the shard directory (use mode 0755)
-//   - open, write, close : creating and writing to the temp file
-//                          (Use O_CREAT | O_WRONLY | O_TRUNC, mode 0644)
-//   - fsync              : flushing the file descriptor to disk
-//   - rename             : atomically moving the temp file to the final path
-//
+int object_exists(const ObjectID *id) {
+    char path[PATH_MAX];
+    object_path(id, path, sizeof(path));
+    return access(path, F_OK) == 0;
+}
 
-//
+// ─── PHASE 1: IMPLEMENTATION ────────────────────────────────────────────────
+
 int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
     // 1. Prepare the Header
     char header[64];
     const char *type_str = (type == OBJ_BLOB) ? "blob" : 
                            (type == OBJ_TREE) ? "tree" : "commit";
+    
     // Format: "type size\0"
     int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, size) + 1; 
 
@@ -131,7 +80,7 @@ int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
     // 3. Compute Hash
     compute_hash(full_content, total_len, id);
 
-    // 4. Deduplication: If object exists, we are done!
+    // 4. Deduplication: If object exists, return success
     if (object_exists(id)) {
         free(full_content);
         return 0;
@@ -146,13 +95,16 @@ int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
     char *last_slash = strrchr(dir_path, '/');
     if (last_slash) *last_slash = '\0';
 
-    // 6. Create Directories
+    // 6. Create Directories (Shard directory XX)
     mkdir(".pes", 0755);
     mkdir(".pes/objects", 0755);
     mkdir(dir_path, 0755);
 
-    // 7. Atomic Write using the FULL content
-    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    // 7. Atomic Write: Write to a temp file then rename
+    char temp_path[PATH_MAX];
+    snprintf(temp_path, sizeof(temp_path), "%s.tmp", path);
+
+    int fd = open(temp_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
         free(full_content);
         return -1;
@@ -160,16 +112,25 @@ int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
 
     if (write(fd, full_content, total_len) != (ssize_t)total_len) {
         close(fd);
+        unlink(temp_path);
         free(full_content);
         return -1;
     }
 
     fsync(fd);
     close(fd);
-    free(full_content); // Free only AFTER the write is done
 
+    // Atomic move
+    if (rename(temp_path, path) != 0) {
+        unlink(temp_path);
+        free(full_content);
+        return -1;
+    }
+
+    free(full_content);
     return 0; 
 }
+
 // Read an object from the store.
 //
 // Steps:
