@@ -233,8 +233,54 @@ int index_save(const Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_add(Index *index, const char *path) {
-    // TODO: Implement file staging
-    // (See Lab Appendix for logical steps)
-    (void)index; (void)path;
-    return -1;
+    // 1. Read the target file content
+    FILE *f = fopen(path, "rb");
+    if (!f) { 
+        perror(path); 
+        return -1; 
+    }
+
+    struct stat st;
+    if (lstat(path, &st) != 0) { 
+        fclose(f); 
+        return -1; 
+    }
+
+    uint8_t *data = malloc(st.st_size);
+    if (!data) { 
+        fclose(f); 
+        return -1; 
+    }
+
+    if (fread(data, 1, st.st_size, f) != (size_t)st.st_size) {
+        free(data); 
+        fclose(f); 
+        return -1;
+    }
+    fclose(f);
+
+    // 2. Write the file content to the object store
+    ObjectID id;
+    if (object_write(OBJ_BLOB, data, st.st_size, &id) != 0) {
+        free(data); 
+        return -1;
+    }
+    free(data);
+
+    // 3. Upsert: Update existing entry or append a new one
+    IndexEntry *e = index_find(index, path);
+    if (!e) {
+        if (index->count >= MAX_INDEX_ENTRIES) return -1;
+        e = &index->entries[index->count++];
+    }
+
+    e->mode      = get_file_mode(path);
+    e->hash      = id;
+    e->mtime_sec = (uint64_t)st.st_mtime;
+    e->size      = (uint32_t)st.st_size;
+    strncpy(e->path, path, sizeof(e->path) - 1);
+    e->path[sizeof(e->path) - 1] = '\0';
+
+    // 4. Save the updated index to disk
+    return index_save(index);
 }
