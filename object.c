@@ -111,6 +111,21 @@ int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
     compute_hash(full_content, total_len, id);
     
     free(full_content);
+    // --- Commit 4 Logic: Directory Sharding ---
+    char path[PATH_MAX];
+    object_path(id, path); // This helper gets the full path like .pes/objects/XX/YYYY...
+
+    char dir_path[PATH_MAX];
+    strncpy(dir_path, path, PATH_MAX);
+    
+    // We need to isolate the folder name (.pes/objects/XX) from the full path
+    char *last_slash = strrchr(dir_path, '/');
+    if (last_slash) {
+        *last_slash = '\0'; // Cut the string at the last slash
+    }
+
+    // Create the "XX" directory. 0755 provides standard read/write/execute permissions.
+    mkdir(dir_path, 0755);
     return 0; 
 }
 // Read an object from the store.
