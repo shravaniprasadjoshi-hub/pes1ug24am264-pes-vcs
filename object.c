@@ -161,7 +161,7 @@ int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_
     if (!fp) return -1;
 
     fseek(fp, 0, SEEK_END);
-    size_t size = ftell(fp); // Get file size
+    size_t size = ftell(fp);
     rewind(fp);
 
     char *buffer = malloc(size);
@@ -169,10 +169,17 @@ int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_
         fclose(fp);
         return -1;
     }
-    fread(buffer, 1, size, fp); // Read entire content
+    fread(buffer, 1, size, fp);
     fclose(fp);
 
-    // TODO: Phase 2.3 - Integrity check goes here
+    ObjectID computed;
+    compute_hash(buffer, size, &computed); // Re-hash the read content
+    if (memcmp(computed.hash, id->hash, HASH_SIZE) != 0) { // Verify integrity
+        free(buffer);
+        return -1;
+    }
+
+    // TODO: Phase 2.4 - Header parsing goes here
     free(buffer);
     return -1;
 }
