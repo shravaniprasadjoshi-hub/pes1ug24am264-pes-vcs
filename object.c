@@ -100,7 +100,7 @@ int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
                            (type == OBJ_TREE) ? "tree" : "commit";
     int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, size) + 1; 
 
-    // --- Commit 2 Logic: Combine Header and Data ---
+    
     size_t total_len = header_len + size;
     unsigned char *full_content = malloc(total_len);
     if (!full_content) return -1; 
@@ -113,7 +113,7 @@ int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
     free(full_content);
     // --- Commit 4 Logic: Directory Sharding ---
     char path[PATH_MAX];
-    object_path(id, path); // This helper gets the full path like .pes/objects/XX/YYYY...
+   object_path(id, path, sizeof(path)); // This helper gets the full path like .pes/objects/XX/YYYY...
 
     char dir_path[PATH_MAX];
     strncpy(dir_path, path, PATH_MAX);
@@ -126,6 +126,23 @@ int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
 
     // Create the "XX" directory. 0755 provides standard read/write/execute permissions.
     mkdir(dir_path, 0755);
+
+    // --- Commit 5 Logic: Atomic File Write ---
+    // Open the file for writing. Create it if it doesn't exist; truncate it if it does.
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return -1;
+
+    // Write the header, then write the actual data immediately after it
+    if (write(fd, header, header_len) != header_len || 
+        write(fd, data, size) != (ssize_t)size) {
+        close(fd);
+        return -1;
+    }
+
+    // fsync ensures the data is physically flushed to the disk before we close
+    fsync(fd);
+    close(fd);
+
     return 0; 
 }
 // Read an object from the store.
