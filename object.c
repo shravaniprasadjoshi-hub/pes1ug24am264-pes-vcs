@@ -154,7 +154,13 @@ int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
 // The caller is responsible for calling free(*data_out).
 // Returns 0 on success, -1 on error (file not found, corrupt, etc.).
 int object_read(const ObjectID *id, ObjectType *type_out, void **data_out, size_t *len_out) {
-    // TODO: Implement
-    (void)id; (void)type_out; (void)data_out; (void)len_out;
-    return -1;
+    char path[PATH_MAX];
+    object_path(id, path, sizeof(path)); //
+
+    FILE *fp = fopen(path, "rb"); // Open in binary mode
+    if (!fp) return -1;
+    
+    // TODO: Phase 2.2 - Reading logic goes here
+    fclose(fp);
+    return -1; 
 }
