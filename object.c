@@ -8,57 +8,77 @@
 // PROVIDED functions: compute_hash, object_path, object_exists, hash_to_hex, hex_to_hash
 // TODO functions:     object_write, object_read
 
-#include "pes.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include "object.h"
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <openssl/evp.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <linux/limits.h>
 
-// ─── PROVIDED ────────────────────────────────────────────────────────────────
+// ... (Keep the PROVIDED functions: hash_to_hex, hex_to_hash, compute_hash, etc. exactly as they were) ...
 
-void hash_to_hex(const ObjectID *id, char *hex_out) {
-    for (int i = 0; i < HASH_SIZE; i++) {
-        sprintf(hex_out + i * 2, "%02x", id->hash[i]);
+int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
+    // 1. Prepare the Header
+    char header[64];
+    const char *type_str = (type == OBJ_BLOB) ? "blob" : 
+                           (type == OBJ_TREE) ? "tree" : "commit";
+    int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, size) + 1; 
+
+    // 2. Build the full content for hashing
+    size_t total_len = header_len + size;
+    unsigned char *full_content = malloc(total_len);
+    if (!full_content) return -1; 
+
+    memcpy(full_content, header, header_len);
+    memcpy(full_content + header_len, data, size);
+
+    // 3. Compute the SHA-256 hash
+    compute_hash(full_content, total_len, id);
+
+    // 4. Deduplication: success if it already exists
+    if (object_exists(id)) {
+        free(full_content);
+        return 0;
     }
-    hex_out[HASH_HEX_SIZE] = '\0';
-}
 
-int hex_to_hash(const char *hex, ObjectID *id_out) {
-    if (strlen(hex) < HASH_HEX_SIZE) return -1;
-    for (int i = 0; i < HASH_SIZE; i++) {
-        unsigned int byte;
-        if (sscanf(hex + i * 2, "%2x", &byte) != 1) return -1;
-        id_out->hash[i] = (uint8_t)byte;
-    }
-    return 0;
-}
-
-void compute_hash(const void *data, size_t len, ObjectID *id_out) {
-    unsigned int hash_len;
-    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
-    EVP_DigestInit_ex(ctx, EVP_sha256(), NULL);
-    EVP_DigestUpdate(ctx, data, len);
-    EVP_DigestFinal_ex(ctx, id_out->hash, &hash_len);
-    EVP_MD_CTX_free(ctx);
-}
-
-// Get the filesystem path where an object should be stored.
-// Format: .pes/objects/XX/YYYYYYYY...
-// The first 2 hex chars form the shard directory; the rest is the filename.
-void object_path(const ObjectID *id, char *path_out, size_t path_size) {
-    char hex[HASH_HEX_SIZE + 1];
-    hash_to_hex(id, hex);
-    snprintf(path_out, path_size, "%s/%.2s/%s", OBJECTS_DIR, hex, hex + 2);
-}
-
-int object_exists(const ObjectID *id) {
-    char path[512];
+    // 5. Setup Paths
+    char path[PATH_MAX];
     object_path(id, path, sizeof(path));
-    return access(path, F_OK) == 0;
+
+    char dir_path[PATH_MAX];
+    strncpy(dir_path, path, PATH_MAX);
+    char *last_slash = strrchr(dir_path, '/');
+    if (last_slash) *last_slash = '\0';
+
+    // 6. Create directories (sharding)
+    mkdir(".pes", 0755);
+    mkdir(".pes/objects", 0755);
+    mkdir(dir_path, 0755);
+
+    // 7. Atomic Write
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) {
+        free(full_content);
+        return -1;
+    }
+
+    if (write(fd, full_content, total_len) != (ssize_t)total_len) {
+        close(fd);
+        free(full_content);
+        return -1;
+    }
+
+    fsync(fd);
+    close(fd);
+    free(full_content);
+
+    return 0; 
 }
+
+// ... (Leave object_read as a TODO for now) ...
 
 // ─── TODO: Implement these ──────────────────────────────────────────────────
 
@@ -95,12 +115,12 @@ int object_exists(const ObjectID *id) {
 int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
     // 1. Prepare the Header
     char header[64];
-    // Convert ObjectType enum to string (e.g., "blob")
     const char *type_str = (type == OBJ_BLOB) ? "blob" : 
                            (type == OBJ_TREE) ? "tree" : "commit";
+    // Format: "type size\0"
     int header_len = snprintf(header, sizeof(header), "%s %zu", type_str, size) + 1; 
 
-    
+    // 2. Build the full object for hashing
     size_t total_len = header_len + size;
     unsigned char *full_content = malloc(total_len);
     if (!full_content) return -1; 
@@ -108,10 +128,16 @@ int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
     memcpy(full_content, header, header_len);
     memcpy(full_content + header_len, data, size);
 
+    // 3. Compute Hash
     compute_hash(full_content, total_len, id);
-    
-    free(full_content);
-// --- Updated Commit 4 Logic ---
+
+    // 4. Deduplication: If object exists, we are done!
+    if (object_exists(id)) {
+        free(full_content);
+        return 0;
+    }
+
+    // 5. Prepare Paths
     char path[PATH_MAX];
     object_path(id, path, sizeof(path));
 
@@ -120,28 +146,27 @@ int object_write(ObjectType type, const void *data, size_t size, ObjectID *id) {
     char *last_slash = strrchr(dir_path, '/');
     if (last_slash) *last_slash = '\0';
 
-    // 1. Create .pes/objects first (just in case)
+    // 6. Create Directories
     mkdir(".pes", 0755);
     mkdir(".pes/objects", 0755);
-
-    // 2. Then create the sharded directory (XX)
     mkdir(dir_path, 0755);
 
-    // --- Commit 5 Logic: Atomic File Write ---
-    // Open the file for writing. Create it if it doesn't exist; truncate it if it does.
+    // 7. Atomic Write using the FULL content
     int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fd < 0) return -1;
-
-    // Write the header, then write the actual data immediately after it
-    if (write(fd, header, header_len) != header_len || 
-        write(fd, data, size) != (ssize_t)size) {
-        close(fd);
+    if (fd < 0) {
+        free(full_content);
         return -1;
     }
 
-    // fsync ensures the data is physically flushed to the disk before we close
+    if (write(fd, full_content, total_len) != (ssize_t)total_len) {
+        close(fd);
+        free(full_content);
+        return -1;
+    }
+
     fsync(fd);
     close(fd);
+    free(full_content); // Free only AFTER the write is done
 
     return 0; 
 }
